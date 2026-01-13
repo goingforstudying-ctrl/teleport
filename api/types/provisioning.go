@@ -201,6 +201,10 @@ type ProvisionToken interface {
 	// the token name.
 	GetSafeName() string
 
+	// GetScope always returns an empty string because a [ProvisionToken] is always
+	// unscoped
+	GetScope() string
+
 	// GetAssignedScope always returns an empty string because a [ProvisionToken] is always
 	// unscoped
 	GetAssignedScope() string
@@ -734,6 +738,12 @@ func (p *ProvisionTokenV2) GetSafeName() string {
 	name = name[hiddenBefore:]
 	name = strings.Repeat("*", hiddenBefore) + name
 	return name
+}
+
+// GetScope always returns an empty string because a [ProvisionTokenV2] is always
+// unscoped
+func (p *ProvisionTokenV2) GetScope() string {
+	return ""
 }
 
 // GetAssignedScope always returns an empty string because a [ProvisionTokenV2] is always
