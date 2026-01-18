@@ -2302,6 +2302,7 @@ dependencies = [
  "picky-asn1-der",
  "picky-asn1-x509",
  "rand 0.9.3",
+ "rdp-decoder",
  "reqwest",
  "rsa",
  "rustls",
@@ -2312,6 +2313,15 @@ dependencies = [
  "url",
  "utf16string",
  "uuid",
+]
+
+[[package]]
+name = "rdp-decoder"
+version = "0.1.0"
+dependencies = [
+ "ironrdp-core",
+ "ironrdp-graphics",
+ "ironrdp-session",
 ]
 
 [[package]]
