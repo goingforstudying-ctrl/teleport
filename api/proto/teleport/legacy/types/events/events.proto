@@ -5208,6 +5208,7 @@ message OneOf {
     events.ClassifierCreate ClassifierCreate = 260;
     events.ClassifierUpdate ClassifierUpdate = 261;
     events.ClassifierDelete ClassifierDelete = 262;
+    events.AgentForward AgentForward = 263;
   }
 }
 
@@ -10869,6 +10870,44 @@ message ClassifierDelete {
 
   // Status indicates whether the deletion was successful.
   Status Status = 5 [
+    (gogoproto.nullable) = false,
+    (gogoproto.embed) = true,
+    (gogoproto.jsontag) = ""
+  ];
+}
+
+// AgentForward is emitted when a user requests SSH agent forwarding.
+message AgentForward {
+  // Metadata is a common event metadata
+  Metadata Metadata = 1 [
+    (gogoproto.nullable) = false,
+    (gogoproto.embed) = true,
+    (gogoproto.jsontag) = ""
+  ];
+
+  // User is a common user event metadata
+  UserMetadata User = 2 [
+    (gogoproto.nullable) = false,
+    (gogoproto.embed) = true,
+    (gogoproto.jsontag) = ""
+  ];
+
+  // ConnectionMetadata holds information about the connection
+  ConnectionMetadata Connection = 3 [
+    (gogoproto.nullable) = false,
+    (gogoproto.embed) = true,
+    (gogoproto.jsontag) = ""
+  ];
+
+  // Status contains operation success or failure status
+  Status Status = 4 [
+    (gogoproto.nullable) = false,
+    (gogoproto.embed) = true,
+    (gogoproto.jsontag) = ""
+  ];
+
+  // ServerMetadata holds server information.
+  ServerMetadata Server = 5 [
     (gogoproto.nullable) = false,
     (gogoproto.embed) = true,
     (gogoproto.jsontag) = ""
