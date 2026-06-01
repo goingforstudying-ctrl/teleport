@@ -377,6 +377,22 @@ func TestDetectionsList(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError, agErr.StatusCode)
 		require.Equal(t, "alerts backend exploded", agErr.Message)
 	})
+
+	t.Run("negative limit returns BadParameter without hitting the server", func(t *testing.T) {
+		// Handler fails on any request — the limit guard must trip first so a
+		// typo'd negative limit fails fast instead of paging every alert.
+		var called atomic.Int64
+		ag := newAccessGraphTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called.Add(1)
+			t.Errorf("server reached despite negative limit: %s", r.URL.Path)
+		}))
+
+		c, _ := newDetectionsCommand(t, teleport.JSON)
+		c.detections.ls.limit = -1
+		err := c.DetectionsList(context.Background(), ag)
+		require.True(t, trace.IsBadParameter(err), "want BadParameter, got %v", err)
+		require.EqualValues(t, 0, called.Load())
+	})
 }
 
 func TestDetectionsGet(t *testing.T) {

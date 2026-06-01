@@ -119,6 +119,14 @@ func validateTimeWindow(from, to time.Time) error {
 	return nil
 }
 
+// validateLimit rejects negative limits so that only 0 means "unlimited".
+func validateLimit(limit int) error {
+	if limit < 0 {
+		return trace.BadParameter("invalid --limit %d: must be >= 0 (0 means unlimited)", limit)
+	}
+	return nil
+}
+
 // parseRelativeDuration extends time.ParseDuration with a "d" suffix meaning days.
 func parseRelativeDuration(s string) (time.Duration, error) {
 	if before, ok := strings.CutSuffix(s, "d"); ok {

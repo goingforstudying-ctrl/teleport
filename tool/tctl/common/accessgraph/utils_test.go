@@ -183,6 +183,22 @@ func TestValidateTimeWindow(t *testing.T) {
 	})
 }
 
+func TestValidateLimit(t *testing.T) {
+	t.Run("positive limit is valid", func(t *testing.T) {
+		require.NoError(t, validateLimit(100))
+	})
+
+	t.Run("zero is valid (unlimited)", func(t *testing.T) {
+		require.NoError(t, validateLimit(0))
+	})
+
+	t.Run("negative limit is rejected", func(t *testing.T) {
+		err := validateLimit(-1)
+		require.Error(t, err)
+		require.True(t, trace.IsBadParameter(err), "want BadParameter, got %v", err)
+	})
+}
+
 func TestStrPtrToStr(t *testing.T) {
 	require.Empty(t, strPtrToStr(nil))
 	empty := ""

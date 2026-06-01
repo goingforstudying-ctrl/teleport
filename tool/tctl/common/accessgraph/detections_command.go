@@ -105,7 +105,7 @@ func (c *AccessGraphCommand) initDetectionsList(parent *kingpin.CmdClause) {
 		EnumsVar(&c.detections.ls.severity, "low", "medium", "high", "critical")
 	lsCmd.Flag("detailed", "Include extra columns (Reported By, Type, Affected Entity, Tags, Description, Start Time, End Time, Updated) in text output.").
 		BoolVar(&c.detections.ls.detailed)
-	lsCmd.Flag("limit", "Maximum number of detections to return.").
+	lsCmd.Flag("limit", "Maximum number of detections to return (0 for unlimited).").
 		Default("100").
 		IntVar(&c.detections.ls.limit)
 	c.detections.ls.cmd = lsCmd
@@ -114,6 +114,9 @@ func (c *AccessGraphCommand) initDetectionsList(parent *kingpin.CmdClause) {
 // DetectionsList executes `tctl detections ls`.
 func (c *AccessGraphCommand) DetectionsList(ctx context.Context, client *accessgraph.ClientWithResponses) error {
 	if err := validateTimeWindow(c.detections.from, c.detections.to); err != nil {
+		return trace.Wrap(err)
+	}
+	if err := validateLimit(c.detections.ls.limit); err != nil {
 		return trace.Wrap(err)
 	}
 	params := constructAlertsListQuery(c.detections)
