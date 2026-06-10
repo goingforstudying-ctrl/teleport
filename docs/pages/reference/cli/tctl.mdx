@@ -1098,13 +1098,14 @@ Edit a Teleport resource.
 Usage:
 
 ```code
-$ tctl edit [<resource type/resource name>]
+$ tctl edit [<resource type/resource name>] [<id>]
 ```
 
 Arguments:
 
 |Argument|Default|Description|
 |---|---|---|
+|id|*no default* (optional)|Resource identifier: scope-qualified name (e.g. "/staging/west::myrole") or bare name for unscoped kinds|
 |resource type/resource name|*no default* (optional)|Resource to update, e.g., "user/myuser"|
 
 ## tctl get
@@ -1114,7 +1115,7 @@ Print a YAML declaration of various Teleport resources.
 Usage:
 
 ```code
-$ tctl get [<flags>] <resources>
+$ tctl get [<flags>] <resources> [<id>]
 ```
 
 Flags:
@@ -1129,6 +1130,7 @@ Arguments:
 
 |Argument|Default|Description|
 |---|---|---|
+|id|*no default* (optional)|Resource identifier: scope-qualified name (e.g. "/staging/west::myrole") or bare name for unscoped kinds|
 |resources|*no default* (required)|Resource spec: 'type/\[name\]\[,...\]' or 'all'|
 
 ## tctl help
@@ -1930,13 +1932,14 @@ Delete a resource.
 Usage:
 
 ```code
-$ tctl rm [<resource type/resource name>]
+$ tctl rm [<resource type/resource name>] [<id>]
 ```
 
 Arguments:
 
 |Argument|Default|Description|
 |---|---|---|
+|id|*no default* (optional)|Resource identifier: scope-qualified name (e.g. "/staging/west::myrole") or bare name for unscoped kinds|
 |resource type/resource name|*no default* (optional)|Resource to delete
 	\<resource type\>  Type of a resource \[for example: connector,user,cluster,token\]
 	\<resource name\>  Resource name to delete
@@ -2315,7 +2318,7 @@ Update resource fields.
 Usage:
 
 ```code
-$ tctl update [<flags>] [<resource type/resource name>]
+$ tctl update [<flags>] [<resource type/resource name>] [<id>]
 ```
 
 Flags:
@@ -2329,6 +2332,7 @@ Arguments:
 
 |Argument|Default|Description|
 |---|---|---|
+|id|*no default* (optional)|Resource identifier: scope-qualified name (e.g. "/staging/west::myrole") or bare name for unscoped kinds|
 |resource type/resource name|*no default* (optional)|Resource to update
 	\<resource type\>  Type of a resource \[for example: rc\]
 	\<resource name\>  Resource name to update
