@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	decisionpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/decision/v1alpha1"
 	"github.com/gravitational/teleport/api/types"
 	apievents "github.com/gravitational/teleport/api/types/events"
 	"github.com/gravitational/teleport/lib/events"
@@ -207,7 +208,10 @@ func TestCheckSCPAllowed(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			scx := newTestServerContext(t, nil, nil, nil)
-			ok, _ := checkSCPAllowed(scx, tc.command)
+			scx.AllowFileCopying = true
+			scx.Identity.AccessPermit = &decisionpb.SSHAccessPermit{SshFileCopy: true}
+			ok, err := checkSCPAllowed(scx, tc.command)
+			require.NoError(t, err)
 			tc.assert(t, ok)
 		})
 	}
