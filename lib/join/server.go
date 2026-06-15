@@ -66,6 +66,7 @@ import (
 	"github.com/gravitational/teleport/lib/join/tpmjoin"
 	kubetoken "github.com/gravitational/teleport/lib/kube/token"
 	"github.com/gravitational/teleport/lib/modules"
+	"github.com/gravitational/teleport/lib/scopes"
 	"github.com/gravitational/teleport/lib/scopes/joining"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/services/readonly"
@@ -125,6 +126,7 @@ type ServerConfig struct {
 	OracleHTTPClient   utils.HTTPDoClient
 	Logger             *slog.Logger
 	Modules            modules.Modules
+	ScopesFeatures     scopes.Features
 }
 
 // Server implements cluster joining for nodes and bots.
@@ -144,6 +146,33 @@ func NewServer(cfg *ServerConfig) *Server {
 	}
 }
 
+// resolveScopedToken returns a scoped token by name from either the static scoped tokens configured
+// for the cluster or by fetching a scoped token from the scoped token service.
+func (s *Server) resolveScopedToken(ctx context.Context, name string) (*joiningv1.ScopedToken, error) {
+	staticTokens, err := s.cfg.AuthService.GetStaticScopedTokens(ctx)
+	if err != nil {
+		if !trace.IsNotFound(err) {
+			s.cfg.Logger.ErrorContext(ctx, "could not fetch static scoped tokens", "error", err)
+		}
+	}
+
+	// short circuit if a matching static scoped token is found
+	for _, tok := range staticTokens.GetSpec().GetTokens() {
+		if tok.GetMetadata().GetName() == name {
+			return tok, nil
+		}
+	}
+
+	res, err := s.cfg.ScopedTokenService.GetScopedToken(ctx, joiningv1.GetScopedTokenRequest_builder{
+		Name:       name,
+		WithSecret: true,
+	}.Build())
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return res.GetToken(), nil
+}
+
 // getProvisionToken attempts to resolve a name to a [provision.Token] by first attempting to
 // fetch a [joiningv1.ScopedToken] and then falling back to a [types.ProvisionTokenV2] if a
 // scoped token can not be found.
@@ -156,35 +185,16 @@ func (s *Server) getProvisionToken(ctx context.Context, name string) (provision.
 
 	wg := &sync.WaitGroup{}
 	wg.Go(func() {
-		staticTokens, err := s.cfg.AuthService.GetStaticScopedTokens(ctx)
-		if err != nil {
-			if !trace.IsNotFound(err) {
-				s.cfg.Logger.ErrorContext(ctx, "could not fetch static scoped tokens", "error", err)
-			}
-		}
-
-		// short circuit if a matching static scoped token is found
-		for _, tok := range staticTokens.GetSpec().GetTokens() {
-			if tok.GetMetadata().GetName() == name {
-				scoped, scopedErr = joining.NewToken(tok)
-				return
-			}
-		}
-
-		res, err := s.cfg.ScopedTokenService.GetScopedToken(ctx, joiningv1.GetScopedTokenRequest_builder{
-			Name:       name,
-			WithSecret: true,
-		}.Build())
+		token, err := s.resolveScopedToken(ctx, name)
 		if err != nil {
 			scopedErr = err
 			return
 		}
-		if err := joining.ValidateTokenForUse(res.GetToken()); err != nil {
+		if err := joining.ValidateTokenForUse(token, s.cfg.ScopesFeatures); err != nil {
 			scopedErr = err
 			return
 		}
-
-		scoped, scopedErr = joining.NewToken(res.GetToken())
+		scoped, scopedErr = joining.NewToken(token)
 	})
 	wg.Go(func() {
 		// Fetch the provision token and validate that it is not expired.

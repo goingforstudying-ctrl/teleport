@@ -6379,6 +6379,7 @@ func NewGRPCServer(cfg GRPCServerConfig) (*GRPCServer, error) {
 			ScopedTokenService: cfg.AuthServer.Services,
 			OracleHTTPClient:   cfg.OracleHTTPClient,
 			Modules:            cfg.AuthServer.modules,
+			ScopesFeatures:     cfg.AuthServer.scopesFeatures,
 		}))
 	}
 
