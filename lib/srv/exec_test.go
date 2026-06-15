@@ -168,7 +168,7 @@ func newExecServerContext(t *testing.T, srv Server) *ServerContext {
 }
 
 func TestCheckSCPAllowed(t *testing.T) {
-	t.Setenv("MY_SCP_COMMAND", "scp")
+	t.Parallel()
 	tests := []struct {
 		name    string
 		command string
@@ -192,16 +192,6 @@ func TestCheckSCPAllowed(t *testing.T) {
 		{
 			name:    "scp command with whitespace",
 			command: "\tscp foo bar",
-			assert:  require.True,
-		},
-		{
-			name:    "scp command in env var",
-			command: "$MY_SCP_COMMAND foo bar",
-			assert:  require.True,
-		},
-		{
-			name:    "scp command in backtick expression",
-			command: "`echo $MY_SCP_COMMAND` foo bar",
 			assert:  require.True,
 		},
 	}

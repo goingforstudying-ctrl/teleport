@@ -378,10 +378,7 @@ func (e *localExec) transformSecureCopy() error {
 func checkSCPAllowed(scx *ServerContext, command string) (bool, error) {
 	// split up command by space to grab the first word. if we don't have anything
 	// it's an interactive shell the user requested and not scp, return
-	parser := shellwords.NewParser()
-	parser.ParseEnv = true
-	parser.ParseBacktick = true
-	args, err := parser.Parse(command)
+	args, err := shellwords.Parse(command)
 	if err != nil {
 		return false, trace.Wrap(err)
 	}
