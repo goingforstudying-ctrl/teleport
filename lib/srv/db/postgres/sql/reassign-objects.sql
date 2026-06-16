@@ -15,6 +15,30 @@ BEGIN
 
     SELECT oid INTO current_db_oid FROM pg_database WHERE datname = current_database();
 
+    -- Reassign safe schemas first. ALTER TABLE OWNER TO requires the new
+    -- owner to have CREATE on the table's schema; transferring the schema
+    -- up front means the inheritor owns (and so has full rights on) every
+    -- containing schema before any table or sequence reassignment runs.
+    -- The "public" schema sits in most users' default search_path, so
+    -- transferring it to teleport-object-inheritor would let any member
+    -- plant shadow objects. System schemas are a sanity check.
+    FOR obj IN
+        SELECT n.nspname
+        FROM pg_shdepend sd
+        JOIN pg_namespace n ON n.oid = sd.objid
+        WHERE sd.refobjid = user_oid
+        AND sd.refclassid = 'pg_authid'::regclass
+        AND sd.deptype = 'o'
+        AND sd.dbid = current_db_oid
+        AND sd.classid = 'pg_namespace'::regclass
+        AND n.nspname != 'public'
+        AND n.nspname NOT LIKE 'pg_%'
+        AND n.nspname != 'information_schema'
+    LOOP
+        EXECUTE FORMAT('ALTER SCHEMA %I OWNER TO %I',
+            obj.nspname, destination_user);
+    END LOOP;
+
     -- Reassign safe tables: regular tables that are not partition children,
     -- do not have row-level security enabled, and have no user-defined
     -- triggers. Internal triggers (e.g. foreign-key constraint triggers) are
@@ -59,27 +83,6 @@ BEGIN
     LOOP
         EXECUTE FORMAT('ALTER SEQUENCE %I.%I OWNER TO %I',
             obj.nspname, obj.relname, destination_user);
-    END LOOP;
-
-    -- Reassign safe schemas. The "public" schema sits in most users'
-    -- default search_path, so transferring it to teleport-object-inheritor
-    -- would let any member plant shadow objects. System schemas are a
-    -- sanity check.
-    FOR obj IN
-        SELECT n.nspname
-        FROM pg_shdepend sd
-        JOIN pg_namespace n ON n.oid = sd.objid
-        WHERE sd.refobjid = user_oid
-        AND sd.refclassid = 'pg_authid'::regclass
-        AND sd.deptype = 'o'
-        AND sd.dbid = current_db_oid
-        AND sd.classid = 'pg_namespace'::regclass
-        AND n.nspname != 'public'
-        AND n.nspname NOT LIKE 'pg_%'
-        AND n.nspname != 'information_schema'
-    LOOP
-        EXECUTE FORMAT('ALTER SCHEMA %I OWNER TO %I',
-            obj.nspname, destination_user);
     END LOOP;
 
     -- Verify the user no longer owns anything. Composite row types and

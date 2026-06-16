@@ -30,6 +30,12 @@ BEGIN
     ELSE
         EXECUTE FORMAT('CREATE USER %I IN ROLE "teleport-auto-user"', username);
     END IF;
+
+    -- Grant the created/activated user to the teleport admin user.
+    -- This is is a precondition for the ALTER ... OWNER TO statements
+    -- in the reassignment procedure.
+    EXECUTE FORMAT('GRANT %I TO %I WITH SET TRUE', username, CURRENT_USER);
+
     -- Assign all roles to the created/activated user.
     FOREACH role_ IN ARRAY roles
     LOOP

@@ -464,20 +464,32 @@ func (e *Engine) ensureTeleportRole(ctx context.Context, conn *pgx.Conn, db type
 	// `GRANT ... WITH ADMIN OPTION` does not upgrade SET/INHERIT on an
 	// existing grant. For the object-inheritor role the reassignment
 	// procedure does `ALTER ... OWNER TO inheritor`, which requires the
-	// admin to be able to SET ROLE to inheritor — so on v16+ we
-	// explicitly include `SET TRUE`. `INHERIT TRUE` is intentionally
-	// omitted: the engine never needs to inherit inheritor's privileges.
+	// admin to be able to SET ROLE to the destination role — so on v16+
+	// we explicitly include `SET TRUE`.
+	//
+	// `ADMIN OPTION` is deliberately dropped from the v16+ clause: when
+	// the admin is itself the role's implicit grantor (because admin
+	// created the role via CREATEROLE), re-granting `ADMIN OPTION` to
+	// oneself trips PG's loop-prevention rule with SQLSTATE 0LP01
+	// ("ADMIN option cannot be granted back to your own grantor"). The
+	// implicit grant already carries ADMIN=TRUE, so the upgrade only
+	// needs to flip SET.
+	//
 	// The teleport-auto-user role needs only ADMIN (to GRANT it to
-	// auto-provisioned users), so it keeps the original grant.
-	// Pre-v16 Postgres lacks the SET/INHERIT option syntax, so we fall
-	// back to the original grant on older versions.
+	// auto-provisioned users) and the implicit grant already provides
+	// that, so it keeps the original `WITH ADMIN OPTION` clause — which
+	// fails silently with the same 0LP01 when admin is the grantor and
+	// is tolerated by the error block below.
+	//
+	// Pre-v16 Postgres lacks the SET option syntax, so we fall back to
+	// the original grant on older versions.
 	// See: https://www.postgresql.org/docs/16/release-16.html
 	grantClause := "WITH ADMIN OPTION"
 	if roleName == teleportObjectInheritorRole {
 		var versionNum int
 		err = conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").Scan(&versionNum)
 		if err == nil && versionNum >= 160000 {
-			grantClause = "WITH ADMIN OPTION, SET TRUE"
+			grantClause = "WITH SET TRUE"
 		}
 	}
 	adminUser := db.GetAdminUser().Name

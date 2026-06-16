@@ -246,6 +246,7 @@ func TestUserAutoProvisioning(t *testing.T) {
 		-- grant requirement in these tests; ensureTeleportRole creates
 		-- it on the first ActivateUser.)
 		CREATE ROLE "teleport-object-inheritor";
+		GRANT "teleport-object-inheritor" TO "teleport-admin";
 		GRANT CREATE ON DATABASE postgres TO "teleport-object-inheritor";
 		GRANT CREATE ON SCHEMA   public   TO "teleport-object-inheritor";
 
