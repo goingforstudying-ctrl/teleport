@@ -221,10 +221,10 @@ func (s *IdentityService) appSessionBackendExpiry(session types.WebSession) time
 // audit event before deletion. When the opt-in is disabled, the backend handles expiration
 // via its TTL and no event is emitted.
 func (s *IdentityService) ListExpiredAppSessions(ctx context.Context, limit int, pageToken string) ([]types.WebSession, string, error) {
-	now := time.Now()
+	now := s.Clock().Now()
 	allSessions := s.rangeSessions(ctx, pageToken, "", "", appsPrefix, sessionsPrefix)
 	expired := stream.FilterMap(allSessions, func(session types.WebSession) (types.WebSession, bool) {
-		return session, now.After(session.Expiry())
+		return session, now.After(session.GetExpiryTime())
 	})
 	return generic.CollectPageAndCursor(expired, limit, types.WebSession.GetName)
 }

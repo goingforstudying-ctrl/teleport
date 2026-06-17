@@ -74,8 +74,9 @@ type IdentityService struct {
 // IdentityServiceOption is a functional option for IdentityService.
 type IdentityServiceOption func(*IdentityService)
 
-// WithAppSessionExpiryService stores app sessions without a backend TTL so the
-// expiry service can handle deletion and emit audit events.
+// WithAppSessionExpiryService extends the backend TTL on app sessions so that the
+// expiry service can handle deletion and emit audit events before the backend
+// cleans them up as a fallback.
 func WithAppSessionExpiryService(enabled bool) IdentityServiceOption {
 	return func(s *IdentityService) {
 		s.appSessionExpiryService = enabled

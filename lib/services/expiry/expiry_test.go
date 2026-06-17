@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 
@@ -442,8 +443,8 @@ func TestExpiryMetrics(t *testing.T) {
 
 				beforeMetric := expiry.metrics.expiredBeforeScan.WithLabelValues(tc.resource.label)
 				afterMetric := expiry.metrics.expiredAfterScan.WithLabelValues(tc.resource.label)
-				require.Equal(t, float64(tc.numCreate), testutil.ToFloat64(beforeMetric))
-				require.Equal(t, float64(expectAfter), testutil.ToFloat64(afterMetric))
+				require.InDelta(t, float64(tc.numCreate), testutil.ToFloat64(beforeMetric), 0)
+				require.InDelta(t, float64(expectAfter), testutil.ToFloat64(afterMetric), 0)
 			})
 		})
 	}
@@ -485,6 +486,7 @@ func setupExpiryService(t *testing.T, appSessionExpiryService bool) (*Service, *
 			},
 		},
 		AppSessionExpiryService: appSessionExpiryService,
+		Clock:                   clockwork.NewRealClock(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { authServer.Close() })
@@ -584,7 +586,6 @@ func mustListAppSessions(t *testing.T, auth *auth.Server) []types.WebSession {
 	return resp
 }
 
-// Helper to extract session names from slice of WebSessions
 func getAppSessionNames(t *testing.T, sessions []types.WebSession) []string {
 	t.Helper()
 	names := make([]string, 0, len(sessions))

@@ -2445,8 +2445,9 @@ func (process *TeleportProcess) initAuthService() error {
 	// latest known version in backend.
 	skipVersionCheckFromEnv := os.Getenv("TELEPORT_UNSTABLE_SKIP_VERSION_UPGRADE_CHECK") != ""
 
-	if cfg.Identity == nil {
-		cfg.Identity, err = local.NewIdentityService(b,
+	identityService := cfg.Identity
+	if identityService == nil {
+		identityService, err = local.NewIdentityService(b,
 			local.WithAppSessionExpiryService(cfg.Auth.AppSessionExpiryService),
 		)
 		if err != nil {
@@ -2482,7 +2483,7 @@ func (process *TeleportProcess) initAuthService() error {
 			Presence:                    cfg.Presence,
 			Events:                      cfg.Events,
 			Provisioner:                 cfg.Provisioner,
-			Identity:                    cfg.Identity,
+			Identity:                    identityService,
 			Access:                      cfg.Access,
 			StaticTokens:                cfg.Auth.StaticTokens,
 			StaticScopedTokens:          cfg.Auth.StaticScopedTokens,
