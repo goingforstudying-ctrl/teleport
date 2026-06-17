@@ -489,7 +489,7 @@ func (e *Engine) ensureTeleportRole(ctx context.Context, conn *pgx.Conn, db type
 	grantClause := "WITH ADMIN OPTION"
 	if roleName == teleportObjectInheritorRole {
 		var versionNum int
-		err = conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").Scan(&versionNum)
+		err = conn.QueryRow(ctx, selectServerVersionQuery).Scan(&versionNum)
 		if err == nil && versionNum >= 160000 {
 			grantClause = "WITH SET TRUE"
 		}
@@ -525,7 +525,7 @@ func (e *Engine) createProcedures(ctx context.Context, sessionCtx *common.Sessio
 	selectedProcs := pickProcedures(sessionCtx)
 
 	var postgresVersion int
-	if err := conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").Scan(&postgresVersion); err != nil {
+	if err := conn.QueryRow(ctx, selectServerVersionQuery).Scan(&postgresVersion); err != nil {
 		return trace.Wrap(err)
 	}
 
@@ -659,6 +659,9 @@ const (
 	// database resources when an auto-provisioned user's session ends and
 	// create_db_user_mode is best_effort_reassign_and_drop.
 	teleportObjectInheritorRole = "teleport-object-inheritor"
+	// selectServerVersionQuery returns the Postgres server version as the
+	// integer reported by current_setting('server_version_num').
+	selectServerVersionQuery = "SELECT current_setting('server_version_num')::int"
 )
 
 var (

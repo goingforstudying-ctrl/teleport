@@ -23,6 +23,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"net"
@@ -336,6 +337,10 @@ func (s *TestServer) handleStartup(client *pgproto3.Backend, startupMessage *pgp
 			case schemaInfoQuery:
 				if err := s.handleSchemaInfo(client); err != nil {
 					s.log.ErrorContext(context.Background(), "Failed to handle schema info query.", "error", err)
+				}
+			case selectServerVersionQuery:
+				if err := s.handleServerVersion(client); err != nil {
+					s.log.ErrorContext(context.Background(), "Failed to handle server version query.", "error", err)
 				}
 			default:
 				s.log.WarnContext(context.Background(), "Ignoring PARSE message", "query", msg.Query)
@@ -778,6 +783,51 @@ func (s *TestServer) handleUpdatePermissions(client *pgproto3.Backend) error {
 	s.log.DebugContext(context.Background(), "Updated permissions for user.", "user", name, "permissions", fmt.Sprintf("%#v", perms))
 	s.userPermissionEventsCh <- UserPermissionEvent{Name: name, Permissions: perms}
 	return nil
+}
+
+// testServerVersion is the value the mock returns for
+// selectServerVersionQuery. 160000 is Postgres 16.0, which exercises the
+// modern (>=16) branch of the activate-user template.
+const testServerVersion uint32 = 160000
+
+func (s *TestServer) handleServerVersion(client *pgproto3.Backend) error {
+	if _, err := s.receiveDescribeMessage(client); err != nil {
+		return trace.Wrap(err)
+	}
+	if _, err := s.receiveSyncMessage(client); err != nil {
+		return trace.Wrap(err)
+	}
+	err := s.sendMessages(client,
+		&pgproto3.ParseComplete{},
+		&pgproto3.ParameterDescription{ParameterOIDs: []uint32{}},
+		&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{
+			Name:         []byte("server_version_num"),
+			DataTypeOID:  pgtype.Int4OID,
+			DataTypeSize: 4,
+		}}},
+		&pgproto3.ReadyForQuery{},
+	)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	if _, err := s.receiveBindMessage(client); err != nil {
+		return trace.Wrap(err)
+	}
+	if _, err := s.receiveExecuteMessage(client); err != nil {
+		return trace.Wrap(err)
+	}
+	if _, err := s.receiveSyncMessage(client); err != nil {
+		return trace.Wrap(err)
+	}
+	// pgx requests binary format for int4 (Int4Codec.PreferredFormat), so
+	// encode the version as a 4-byte big-endian uint32.
+	version := binary.BigEndian.AppendUint32(nil, testServerVersion)
+	return trace.Wrap(s.sendMessages(client,
+		&pgproto3.BindComplete{},
+		&pgproto3.DataRow{Values: [][]byte{version}},
+		&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")},
+		&pgproto3.ReadyForQuery{},
+	))
 }
 
 func (s *TestServer) handleSchemaInfo(client *pgproto3.Backend) error {
