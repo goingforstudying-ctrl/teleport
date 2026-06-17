@@ -687,12 +687,9 @@ func (b *Backend) batchWriteItem(ctx context.Context, requests []types.WriteRequ
 		b.TableName: requests,
 	}
 
-	// maxBatchWriteItemAttempts is the maximum number of attempts to write a
-	// single batch, including retries of UnprocessedItems returned by DynamoDB.
-	const maxBatchWriteItemAttempts = 4
-
 	var retry retryutils.Retry
-	for range maxBatchWriteItemAttempts {
+	previousOutstandingItems := len(requests)
+	for {
 		resp, err := b.svc.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
 			RequestItems: requestItems,
 		})
@@ -704,7 +701,13 @@ func (b *Backend) batchWriteItem(ctx context.Context, requests []types.WriteRequ
 			return nil
 		}
 
+		unprocessedItems := len(resp.UnprocessedItems[b.TableName])
+		if unprocessedItems >= previousOutstandingItems {
+			return trace.LimitExceeded("failed to delete all items, dynamodb returned an increased number of unprocessed items")
+		}
+
 		requestItems = resp.UnprocessedItems
+		previousOutstandingItems = unprocessedItems
 
 		if retry == nil {
 			firstRetry := b.RetryPeriod / 10
@@ -727,8 +730,6 @@ func (b *Backend) batchWriteItem(ctx context.Context, requests []types.WriteRequ
 			return trace.Wrap(ctx.Err())
 		}
 	}
-
-	return trace.LimitExceeded("not all items deleted, dynamodb returned unprocessed items after %d attempts", maxBatchWriteItemAttempts)
 }
 
 // DeleteRange deletes range of items with keys between startKey and endKey

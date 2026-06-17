@@ -138,26 +138,60 @@ func TestDeleteRangeRetriesUnprocessedItems(t *testing.T) {
 
 				batchWriteRequests = append(batchWriteRequests, requestedKeys)
 
-				if len(batchWriteRequests) == 2 {
+				if len(batchWriteRequests) == 3 {
 					return
 				}
 
-				rawKey, err := attributevalue.MarshalMapJSON(map[string]types.AttributeValue{
-					hashKeyKey:  &types.AttributeValueMemberS{Value: hashKey},
-					fullPathKey: &types.AttributeValueMemberS{Value: prependPrefix(keys[2])},
-				})
-				require.NoError(t, err)
-
-				rawRequest, err := json.Marshal(map[string]any{
-					"DeleteRequest": map[string]json.RawMessage{
-						"Key": rawKey,
-					},
-				})
-				require.NoError(t, err)
 				w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-				require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-					"UnprocessedItems": map[string][]json.RawMessage{"table": {rawRequest}},
-				}))
+				switch len(batchWriteRequests) {
+				case 1:
+					rawKey1, err := attributevalue.MarshalMapJSON(map[string]types.AttributeValue{
+						hashKeyKey:  &types.AttributeValueMemberS{Value: hashKey},
+						fullPathKey: &types.AttributeValueMemberS{Value: prependPrefix(keys[1])},
+					})
+					require.NoError(t, err)
+
+					rawRequest1, err := json.Marshal(map[string]any{
+						"DeleteRequest": map[string]json.RawMessage{
+							"Key": rawKey1,
+						},
+					})
+					require.NoError(t, err)
+
+					rawKey2, err := attributevalue.MarshalMapJSON(map[string]types.AttributeValue{
+						hashKeyKey:  &types.AttributeValueMemberS{Value: hashKey},
+						fullPathKey: &types.AttributeValueMemberS{Value: prependPrefix(keys[2])},
+					})
+					require.NoError(t, err)
+
+					rawRequest2, err := json.Marshal(map[string]any{
+						"DeleteRequest": map[string]json.RawMessage{
+							"Key": rawKey2,
+						},
+					})
+					require.NoError(t, err)
+
+					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+						"UnprocessedItems": map[string][]json.RawMessage{"table": {rawRequest1, rawRequest2}},
+					}))
+				case 2:
+					rawKey, err := attributevalue.MarshalMapJSON(map[string]types.AttributeValue{
+						hashKeyKey:  &types.AttributeValueMemberS{Value: hashKey},
+						fullPathKey: &types.AttributeValueMemberS{Value: prependPrefix(keys[2])},
+					})
+					require.NoError(t, err)
+
+					rawRequest, err := json.Marshal(map[string]any{
+						"DeleteRequest": map[string]json.RawMessage{
+							"Key": rawKey,
+						},
+					})
+					require.NoError(t, err)
+
+					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+						"UnprocessedItems": map[string][]json.RawMessage{"table": {rawRequest}},
+					}))
+				}
 			default:
 				http.Error(w, "unexpected dynamodb operation", http.StatusBadRequest)
 			}
@@ -185,15 +219,17 @@ func TestDeleteRangeRetriesUnprocessedItems(t *testing.T) {
 
 		expectedBatchWriteRequests := [][]string{
 			{prependPrefix(keys[0]), prependPrefix(keys[1]), prependPrefix(keys[2])},
+			{prependPrefix(keys[1]), prependPrefix(keys[2])},
 			{prependPrefix(keys[2])},
 		}
 		require.Equal(t, expectedBatchWriteRequests, batchWriteRequests)
 	})
 }
 
-func TestDeleteRangeReturnsErrorForPersistentUnprocessedItems(t *testing.T) {
+func TestDeleteRangeReturnsErrorWhenUnprocessedItemsDoNotDecrease(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		key := backend.NewKey("testing", "test")
+		var batchWriteAttempts int
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Header.Get("X-Amz-Target") {
 			case "DynamoDB_20120810.Query":
@@ -209,6 +245,7 @@ func TestDeleteRangeReturnsErrorForPersistentUnprocessedItems(t *testing.T) {
 				w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 				require.NoError(t, json.NewEncoder(w).Encode(map[string][]json.RawMessage{"Items": {rawItem}}))
 			case "DynamoDB_20120810.BatchWriteItem":
+				batchWriteAttempts++
 				rawKey, err := attributevalue.MarshalMapJSON(map[string]types.AttributeValue{
 					hashKeyKey:  &types.AttributeValueMemberS{Value: hashKey},
 					fullPathKey: &types.AttributeValueMemberS{Value: prependPrefix(key)},
@@ -250,6 +287,88 @@ func TestDeleteRangeReturnsErrorForPersistentUnprocessedItems(t *testing.T) {
 		err := bk.DeleteRange(t.Context(), backend.NewKey("test"), backend.RangeEnd(backend.NewKey("zest")))
 		require.Error(t, err)
 		require.True(t, trace.IsLimitExceeded(err))
+		require.Equal(t, 1, batchWriteAttempts)
+	})
+}
+
+func TestDeleteRangeReturnsErrorWhenUnprocessedItemsIncrease(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		key := backend.NewKey("testing", "test")
+		extraKey := backend.NewKey("testing", "extra")
+		var batchWriteAttempts int
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Header.Get("X-Amz-Target") {
+			case "DynamoDB_20120810.Query":
+				item := map[string]types.AttributeValue{
+					hashKeyKey:  &types.AttributeValueMemberS{Value: hashKey},
+					fullPathKey: &types.AttributeValueMemberS{Value: prependPrefix(key)},
+					"Value":     &types.AttributeValueMemberB{Value: []byte("value")},
+				}
+
+				rawItem, err := attributevalue.MarshalMapJSON(item)
+				require.NoError(t, err)
+
+				w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+				require.NoError(t, json.NewEncoder(w).Encode(map[string][]json.RawMessage{"Items": {rawItem}}))
+			case "DynamoDB_20120810.BatchWriteItem":
+				batchWriteAttempts++
+
+				rawKey, err := attributevalue.MarshalMapJSON(map[string]types.AttributeValue{
+					hashKeyKey:  &types.AttributeValueMemberS{Value: hashKey},
+					fullPathKey: &types.AttributeValueMemberS{Value: prependPrefix(key)},
+				})
+				require.NoError(t, err)
+
+				rawRequest, err := json.Marshal(map[string]any{
+					"DeleteRequest": map[string]json.RawMessage{
+						"Key": rawKey,
+					},
+				})
+				require.NoError(t, err)
+
+				rawExtraKey, err := attributevalue.MarshalMapJSON(map[string]types.AttributeValue{
+					hashKeyKey:  &types.AttributeValueMemberS{Value: hashKey},
+					fullPathKey: &types.AttributeValueMemberS{Value: prependPrefix(extraKey)},
+				})
+				require.NoError(t, err)
+
+				rawExtraRequest, err := json.Marshal(map[string]any{
+					"DeleteRequest": map[string]json.RawMessage{
+						"Key": rawExtraKey,
+					},
+				})
+				require.NoError(t, err)
+
+				w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+				require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+					"UnprocessedItems": map[string][]json.RawMessage{"table": {rawRequest, rawExtraRequest}},
+				}))
+			default:
+				http.Error(w, "unexpected dynamodb operation", http.StatusBadRequest)
+			}
+		})
+
+		listener := bufconn.Listen(1024)
+		server := &httptest.Server{
+			Listener: listenerAddrOverride{Listener: listener},
+			Config:   &http.Server{Handler: handler},
+		}
+		server.StartTLS()
+		t.Cleanup(server.Close)
+
+		client := server.Client()
+		transport := client.Transport.(*http.Transport).Clone()
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return listener.DialContext(ctx)
+		}
+		client.Transport = transport
+
+		bk := newTestDynamoBackend(server)
+
+		err := bk.DeleteRange(t.Context(), backend.NewKey("test"), backend.RangeEnd(backend.NewKey("zest")))
+		require.Error(t, err)
+		require.True(t, trace.IsLimitExceeded(err))
+		require.Equal(t, 1, batchWriteAttempts)
 	})
 }
 
