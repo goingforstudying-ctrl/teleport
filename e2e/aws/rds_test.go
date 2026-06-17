@@ -209,6 +209,22 @@ func testRDS(t *testing.T) {
 		// auto role 3 must allow for creation of tables in the test schema.
 		pgMustExec(t, ctx, conn, fmt.Sprintf("GRANT CREATE ON SCHEMA %q TO %q", testSchema, autoRole3))
 
+		// Pre-create teleport-object-inheritor and grant it CREATE on the test
+		// schema. ALTER TABLE ... OWNER TO <inheritor> in reassign-objects.sql
+		// requires the new owner to have CREATE on the table's schema; without
+		// this grant, reassignment fails, DROP USER then fails because the
+		// user still owns the table, and the user is deactivated instead of
+		// dropped. ensureTeleportRole tolerates the role already existing and
+		// will still grant it to the admin on first DeleteUser.
+		cleanupDB(t, ctx, conn, `DROP ROLE IF EXISTS "teleport-object-inheritor"`)
+		pgMustExec(t, ctx, conn, `
+			DO $$ BEGIN
+				CREATE ROLE "teleport-object-inheritor";
+			EXCEPTION WHEN duplicate_object THEN
+				-- leftover from a previous test run that did not clean up
+			END $$`)
+		pgMustExec(t, ctx, conn, fmt.Sprintf(`GRANT CREATE ON SCHEMA %q TO "teleport-object-inheritor"`, testSchema))
+
 		autoRolesQuery := fmt.Sprintf("select 1 from %q.%q", testSchema, testTable)
 		for _, test := range []struct {
 			name                         string
