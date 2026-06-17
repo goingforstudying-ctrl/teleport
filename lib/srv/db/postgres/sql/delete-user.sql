@@ -2,7 +2,6 @@ CREATE OR REPLACE PROCEDURE pg_temp.teleport_delete_user(username varchar, objec
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    set_role_roles oid[];
     has_active_connections_to_current_db boolean;
     has_active_connections_anywhere boolean;
 BEGIN
