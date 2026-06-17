@@ -7,6 +7,7 @@ BEGIN
     -- Prevent any new sessions for the user in any database while the
     -- procedure runs, to avoid a TOCTTOU race condition.
     EXECUTE FORMAT('ALTER USER %I WITH NOLOGIN', username);
+    COMMIT;
 
     -- Only deactivate if the user doesn't have other active sessions.
     IF EXISTS (SELECT usename FROM pg_stat_activity WHERE usename = username) THEN
