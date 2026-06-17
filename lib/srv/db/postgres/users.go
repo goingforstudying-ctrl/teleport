@@ -19,6 +19,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -26,6 +27,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/gravitational/trace"
@@ -522,6 +524,11 @@ func (e *Engine) callProcedure(ctx context.Context, sessionCtx *common.Session, 
 func (e *Engine) createProcedures(ctx context.Context, sessionCtx *common.Session, conn *pgx.Conn, procNames []string) error {
 	selectedProcs := pickProcedures(sessionCtx)
 
+	var postgresVersion int
+	if err := conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").Scan(&postgresVersion); err != nil {
+		return trace.Wrap(err)
+	}
+
 	for _, procName := range procNames {
 		proc, ok := selectedProcs[procName]
 		if !ok {
@@ -529,6 +536,22 @@ func (e *Engine) createProcedures(ctx context.Context, sessionCtx *common.Sessio
 		}
 
 		logger := e.Log.With("procedure", procName)
+
+		// Fill activate user procedure template to account for postgres
+		// version differences.
+		if procName == activateProcName {
+			procTemplate, err := template.New(procName).Parse(proc)
+			if err != nil {
+				logger.ErrorContext(ctx, "Failed to parse activate procedure template.")
+				return trace.Wrap(err)
+			}
+			buf := bytes.Buffer{}
+			if err := procTemplate.Execute(&buf, postgresVersion); err != nil {
+				logger.ErrorContext(ctx, "Failed to execute activate procedure template.")
+				return trace.Wrap(err)
+			}
+			proc = buf.String()
+		}
 
 		if _, err := conn.Exec(ctx, proc); err != nil {
 			logger.ErrorContext(ctx, "Failed to install procedure.")
@@ -639,7 +662,7 @@ const (
 )
 
 var (
-	//go:embed sql/activate-user.sql
+	//go:embed sql/activate-user.sql.tmpl
 	activateProc string
 	// activateProcCall contains the procedure name and arguments used to call
 	// the activate user procedure.
