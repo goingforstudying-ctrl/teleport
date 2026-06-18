@@ -42,6 +42,16 @@ const identityAccessPath = accessGraphAPIPath + "graph/access/v1"
 
 func ptr[T any](v T) *T { return &v }
 
+// findRow returns the first row satisfying pred, or nil.
+func findRow(rows [][]string, pred func([]string) bool) []string {
+	for _, r := range rows {
+		if pred(r) {
+			return r
+		}
+	}
+	return nil
+}
+
 func TestBuildAccessReviewOutput(t *testing.T) {
 	idID := uuid.New()
 	resID := uuid.New()
@@ -216,9 +226,9 @@ func TestDisplayAccessReviewText(t *testing.T) {
 		}},
 	}
 
-	t.Run("without window omits activity columns", func(t *testing.T) {
+	t.Run("summary without window omits activity columns", func(t *testing.T) {
 		var buf bytes.Buffer
-		require.NoError(t, displayAccessReviewText(&buf, output, time.Time{}, time.Time{}, false))
+		require.NoError(t, displayAccessReviewText(&buf, output, time.Time{}, time.Time{}, false, false))
 		out := buf.String()
 		require.NotContains(t, out, "Last Access")
 		require.NotContains(t, out, "Accesses")
@@ -231,11 +241,11 @@ func TestDisplayAccessReviewText(t *testing.T) {
 		require.NotContains(t, out, "break-glass", "summary shows only the primary grantor")
 	})
 
-	t.Run("with window shows activity and period", func(t *testing.T) {
+	t.Run("summary with window shows activity and period", func(t *testing.T) {
 		from := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 		to := time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC)
 		var buf bytes.Buffer
-		require.NoError(t, displayAccessReviewText(&buf, output, from, to, true))
+		require.NoError(t, displayAccessReviewText(&buf, output, from, to, true, false))
 		out := buf.String()
 		require.Contains(t, out, "Period:")
 		require.Contains(t, out, "Last Access")
@@ -245,21 +255,56 @@ func TestDisplayAccessReviewText(t *testing.T) {
 
 	t.Run("identity cell blanked after first resource row", func(t *testing.T) {
 		var buf bytes.Buffer
-		require.NoError(t, displayAccessReviewText(&buf, output, time.Time{}, time.Time{}, false))
+		require.NoError(t, displayAccessReviewText(&buf, output, time.Time{}, time.Time{}, false, false))
 		// alice@corp must appear exactly once even though she has two resources.
 		require.Equal(t, 1, bytes.Count(buf.Bytes(), []byte("alice@corp")))
 	})
 
+	// The detailed view is asserted on its row data, not the rendered string;
+	// layout is covered separately by TestBuildAccessTable.
+	t.Run("detailed splits a resource with multiple grantors", func(t *testing.T) {
+		headers, rows := accessReviewDetailedRows(output, false)
+		require.Contains(t, headers, "Grantor Level")
+		require.NotContains(t, headers, "Grantor Counts", "detailed drops the path-summary column")
+		// prod-db has two grantors → a summary row with no grantor, then one
+		// indented row per grantor.
+		require.NotNil(t, findRow(rows, func(r []string) bool { return r[2] == "prod-db" && r[5] == "" }),
+			"prod-db summary row with no grantor")
+		require.NotNil(t, findRow(rows, func(r []string) bool { return r[5] == "↳ admins" }))
+		require.NotNil(t, findRow(rows, func(r []string) bool { return r[5] == "↳ break-glass*" }),
+			"temporary grantor should be marked")
+	})
+
+	t.Run("detailed inlines a sole grantor on the resource row", func(t *testing.T) {
+		_, rows := accessReviewDetailedRows(output, false)
+		// prod-web's single grantor shares the resource's row, not its own.
+		require.NotNil(t, findRow(rows, func(r []string) bool { return r[2] == "prod-web" && r[5] == "oncall" }),
+			"sole grantor folded into the resource row")
+		require.Nil(t, findRow(rows, func(r []string) bool { return r[5] == "↳ oncall" }),
+			"a sole grantor is not split onto its own row")
+	})
+
+	t.Run("detailed keeps activity on the summary row for multiple grantors", func(t *testing.T) {
+		_, rows := accessReviewDetailedRows(output, true)
+		// prod-db's summary row carries the activity; its grantor rows do not.
+		summary := findRow(rows, func(r []string) bool { return r[2] == "prod-db" })
+		require.NotNil(t, summary)
+		require.Equal(t, "14", summary[7], "activity belongs to the resource summary row")
+		grantor := findRow(rows, func(r []string) bool { return r[5] == "↳ admins" })
+		require.NotNil(t, grantor)
+		require.Equal(t, "", grantor[7], "grantor rows must not carry activity")
+	})
+
 	t.Run("empty result", func(t *testing.T) {
 		var buf bytes.Buffer
-		require.NoError(t, displayAccessReviewText(&buf, AccessReviewOutput{}, time.Time{}, time.Time{}, false))
+		require.NoError(t, displayAccessReviewText(&buf, AccessReviewOutput{}, time.Time{}, time.Time{}, false, false))
 		require.Contains(t, buf.String(), "No access found.")
 	})
 
 	t.Run("warnings printed", func(t *testing.T) {
 		var buf bytes.Buffer
 		o := AccessReviewOutput{Warnings: []string{"activity unavailable: boom"}}
-		require.NoError(t, displayAccessReviewText(&buf, o, time.Time{}, time.Time{}, false))
+		require.NoError(t, displayAccessReviewText(&buf, o, time.Time{}, time.Time{}, false, false))
 		require.Contains(t, buf.String(), "Warning: activity unavailable: boom")
 	})
 }

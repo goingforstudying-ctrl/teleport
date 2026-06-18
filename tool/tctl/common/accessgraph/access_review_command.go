@@ -43,11 +43,12 @@ const accessReviewPageSize = 25
 type accessReviewArgs struct {
 	cmd *kingpin.CmdClause
 
-	query  string
-	from   time.Time
-	to     time.Time
-	limit  int
-	format string
+	query    string
+	from     time.Time
+	to       time.Time
+	limit    int
+	detailed bool
+	format   string
 }
 
 func (c *AccessGraphCommand) initAccessReview(app *kingpin.Application) {
@@ -66,6 +67,8 @@ func (c *AccessGraphCommand) initAccessReview(app *kingpin.Application) {
 	cmd.Flag("limit", "Maximum number of identities to return.").
 		Default("50").
 		IntVar(&c.accessReview.limit)
+	cmd.Flag("detailed", "Expand each access into a row per grantor with its individual level.").
+		BoolVar(&c.accessReview.detailed)
 	cmd.Flag("format", "Output format. (Values: text, json, yaml)").
 		Default(teleport.Text).
 		EnumVar(&c.accessReview.format, teleport.Text, teleport.JSON, teleport.YAML)
@@ -116,7 +119,7 @@ func (c *AccessGraphCommand) AccessReview(ctx context.Context, client *accessgra
 	}
 
 	return writeOutput(c.stdout, output, args.format, func(w io.Writer) error {
-		return displayAccessReviewText(w, output, from, to, showActivity)
+		return displayAccessReviewText(w, output, from, to, showActivity, args.detailed)
 	})
 }
 
@@ -330,7 +333,7 @@ func grantorSummary(p GrantorCounts) string {
 
 // --- display ----------------------------------------------------------------
 
-func displayAccessReviewText(out io.Writer, output AccessReviewOutput, from, to time.Time, showActivity bool) error {
+func displayAccessReviewText(out io.Writer, output AccessReviewOutput, from, to time.Time, showActivity, detailed bool) error {
 	if showActivity {
 		if _, err := fmt.Fprintf(out, "Period: %s → %s\n\n", from.Format(time.RFC3339), to.Format(time.RFC3339)); err != nil {
 			return trace.Wrap(err)
@@ -344,7 +347,11 @@ func displayAccessReviewText(out io.Writer, output AccessReviewOutput, from, to 
 		return trace.Wrap(writeWarnings(out, output.Warnings))
 	}
 
-	if err := renderAccessReviewSummary(out, output, showActivity); err != nil {
+	render := renderAccessReviewSummary
+	if detailed {
+		render = renderAccessReviewDetailed
+	}
+	if err := render(out, output, showActivity); err != nil {
 		return trace.Wrap(err)
 	}
 	return trace.Wrap(writeWarnings(out, output.Warnings))
@@ -398,6 +405,107 @@ func renderAccessReviewSummary(out io.Writer, output AccessReviewOutput, showAct
 	}
 
 	return writeAccessTable(out, headers, rows)
+}
+
+func renderAccessReviewDetailed(out io.Writer, output AccessReviewOutput, showActivity bool) error {
+	headers, rows := accessReviewDetailedRows(output, showActivity)
+	return writeAccessTable(out, headers, rows)
+}
+
+// accessReviewDetailedRows builds the detailed table rows. A resource with a
+// single grantor renders on one row, since its activity is unambiguously that
+// grantor's. A resource with multiple grantors gets a summary row carrying the
+// resolved level and activity — so the activity reads as a pair-level total —
+// followed by one indented row per grantor with its individual level. Identity
+// cells appear once per identity.
+func accessReviewDetailedRows(output AccessReviewOutput, showActivity bool) ([]string, [][]string) {
+	headers := []string{"Identity", "Kind", "Resource", "Resource Kind", "Access Level", "Grantor", "Grantor Level"}
+	if showActivity {
+		headers = append(headers, "Accesses", "Last Access")
+	}
+
+	var rows [][]string
+	for _, ia := range output.Identities {
+		identityShown := false
+		identityCells := func() (string, string) {
+			if identityShown {
+				return "", ""
+			}
+			identityShown = true
+			return cellName(ia.Identity), cellKind(ia.Identity)
+		}
+
+		if len(ia.Resources) == 0 {
+			id, kind := identityCells()
+			rows = append(rows, padActivity([]string{id, kind, "", "", "", "", ""}, showActivity))
+			continue
+		}
+		for _, ra := range ia.Resources {
+			id, kind := identityCells()
+
+			// A single grantor shares the resource's row; its activity is
+			// unambiguous. Zero grantors leave the grantor cells blank.
+			if len(ra.Grantors) <= 1 {
+				grantor, grantorLevel := "", ""
+				if len(ra.Grantors) == 1 {
+					g := ra.Grantors[0]
+					grantor, grantorLevel = grantorName(g), utils.EscapeControl(g.Level)
+				}
+				row := []string{id, kind, cellName(ra.Resource), cellKind(ra.Resource), levelCell(ra), grantor, grantorLevel}
+				if showActivity {
+					accesses, last := activityCells(ra)
+					row = append(row, accesses, last)
+				}
+				rows = append(rows, row)
+				continue
+			}
+
+			// Multiple grantors: summary row carries the pair-level activity,
+			// then one indented row per grantor.
+			summary := []string{id, kind, cellName(ra.Resource), cellKind(ra.Resource), levelCell(ra), "", ""}
+			if showActivity {
+				accesses, last := activityCells(ra)
+				summary = append(summary, accesses, last)
+			}
+			rows = append(rows, summary)
+
+			for _, g := range ra.Grantors {
+				rows = append(rows, padActivity([]string{"", "", "", "", "", "↳ " + grantorName(g), utils.EscapeControl(g.Level)}, showActivity))
+			}
+		}
+	}
+
+	return headers, rows
+}
+
+// levelCell renders the resolved access level, marking self-expiring access.
+func levelCell(ra ResourceAccess) string {
+	level := utils.EscapeControl(ra.Level)
+	if ra.Temporary {
+		level += "*"
+	}
+	return level
+}
+
+// activityCells renders the access count and last-access time for a pair,
+// reading absent activity as zero / never.
+func activityCells(ra ResourceAccess) (accesses, last string) {
+	if ra.Activity == nil {
+		return "0", "never"
+	}
+	last = "never"
+	if ra.Activity.LastAccess != nil {
+		last = ra.Activity.LastAccess.Format(time.RFC3339)
+	}
+	return fmt.Sprintf("%d", ra.Activity.Count), last
+}
+
+// padActivity appends empty activity cells when the activity columns are shown.
+func padActivity(row []string, showActivity bool) []string {
+	if showActivity {
+		return append(row, "", "")
+	}
+	return row
 }
 
 const resourceColumn = "Resource"
@@ -470,4 +578,13 @@ func cellName(n Node) string {
 // cellKind renders a node's sub-kind (e.g. user, bot, ssh).
 func cellKind(n Node) string {
 	return utils.EscapeControl(n.SubKind)
+}
+
+// grantorName renders a grantor's display label, marking temporary grantors.
+func grantorName(g Grantor) string {
+	name := cellName(g.Node)
+	if g.Node.Temporary {
+		name += "*"
+	}
+	return name
 }
