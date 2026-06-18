@@ -59,6 +59,7 @@ import (
 	"github.com/gravitational/teleport/lib/asciitable"
 	"github.com/gravitational/teleport/lib/devicetrust"
 	"github.com/gravitational/teleport/lib/reversetunnelclient"
+	"github.com/gravitational/teleport/lib/scopes/joining"
 	"github.com/gravitational/teleport/lib/sshutils"
 	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/tool/common"
@@ -2270,9 +2271,7 @@ func scopedTokenTextHelper(tokens []*joiningv1.ScopedToken, withSecrets bool) *b
 		"Labels",
 		"Expiry Time (UTC)",
 	}
-	if withSecrets {
-		headers = slices.Insert(headers, 1, "Secret")
-	}
+
 	table := asciitable.MakeTable(headers)
 
 	now := time.Now()
@@ -2284,17 +2283,21 @@ func scopedTokenTextHelper(tokens []*joiningv1.ScopedToken, withSecrets bool) *b
 			expdur := expiresAt.Sub(now).Round(time.Second)
 			expiry = fmt.Sprintf("%s (%s)", exptime, expdur.String())
 		}
+
+		token := t.GetMetadata().GetName() + ":*****"
+		if withSecrets {
+			token = joining.EncodeScopedToken(t.GetMetadata().GetName(), t.GetStatus().GetSecret())
+		}
+
 		row := []string{
-			t.GetMetadata().GetName(),
+			token,
 			strings.Join(t.GetSpec().GetRoles(), ","),
 			t.GetScope(),
 			t.GetSpec().GetAssignedScope(),
 			printMetadataLabels(t.GetMetadata().Labels),
 			expiry,
 		}
-		if withSecrets {
-			row = slices.Insert(row, 1, t.GetStatus().GetSecret())
-		}
+
 		table.AddRow(row)
 	}
 	return table.AsBuffer()
