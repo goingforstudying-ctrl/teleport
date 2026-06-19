@@ -188,8 +188,8 @@ func (w *ProxyKubeServerWatcher) isHealthyLocked() bool {
 
 // shouldFetchFromFallback determines if the watcher should fetch from the fallback getter based on the health of the primary access point and the next fallback fetch time.
 func (w *ProxyKubeServerWatcher) shouldFetchFromFallback(now time.Time) bool {
-	w.rw.Lock()
-	defer w.rw.Unlock()
+	w.rw.RLock()
+	defer w.rw.RUnlock()
 
 	if w.isHealthyLocked() {
 		return false
@@ -199,8 +199,6 @@ func (w *ProxyKubeServerWatcher) shouldFetchFromFallback(now time.Time) bool {
 		return false
 	}
 
-	// Note this includes time to acquire the lock but the interval should be much greater than that.
-	w.nextFallbackFetch = now.Add(retryutils.SeventhJitter(w.FallbackInterval))
 	return true
 }
 
@@ -408,16 +406,19 @@ func (w *ProxyKubeServerWatcher) maybeFetchFromUpstream(ctx context.Context) err
 
 	ch := w.singleFlighter.DoChan("collection", func() (any, error) {
 		newCurrent, err := w.getAllKubeServers(w.ctx, w.FallbackGetter)
-		if err != nil {
-			return nil, trace.Wrap(err, "fetching from fallback")
-		}
-
 		w.rw.Lock()
 		defer w.rw.Unlock()
 
 		if w.isHealthyLocked() {
 			// If the watcher became healhy while we were fetching from the fallback use the primary data.
 			return nil, nil
+		}
+
+		// Reset the fetcher time. This is done also if the call fails.
+		// The time is added to the timestamp from the entry, which will preceed the fetch time.
+		w.nextFallbackFetch = now.Add(retryutils.SeventhJitter(w.FallbackInterval))
+		if err != nil {
+			return nil, trace.Wrap(err, "fetching from fallback")
 		}
 
 		w.current = newCurrent

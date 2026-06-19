@@ -104,14 +104,14 @@ func isHealthy(w *ProxyKubeServerWatcher) bool {
 }
 
 func markUnhealthy(w *ProxyKubeServerWatcher) {
-	w.rw.RLock()
-	defer w.rw.RUnlock()
+	w.rw.Lock()
+	defer w.rw.Unlock()
 	w.nextFallbackFetch = time.Now() // ensure watcher is considered broken
 }
 
 func markHealthy(w *ProxyKubeServerWatcher) {
-	w.rw.RLock()
-	defer w.rw.RUnlock()
+	w.rw.Lock()
+	defer w.rw.Unlock()
 	w.nextFallbackFetch = time.Time{} // reset nextFallbackFetch to simulate that the watcher is healthy again
 }
 
@@ -157,9 +157,6 @@ func testProxyKubeServerWatcherStartsWithFaultyPrimarySynctest(t *testing.T) {
 			atomic.AddInt32(&calls, 1)
 		})
 
-	fallback.On("GetKubernetesServers", mock.Anything).
-		Return([]types.KubeServer{newTestKubeServer(t, "foo", "bar")}, nil).Twice()
-
 	cfg := ProxyKubeServerWatcherConfig{
 		Component:        teleport.ComponentProxy,
 		AccessPoint:      primary,
@@ -181,13 +178,15 @@ func testProxyKubeServerWatcherStartsWithFaultyPrimarySynctest(t *testing.T) {
 		waitCh <- w.WaitInitialization()
 	}()
 
-	require.True(t, isHealthy(w), "Watcher starts cold")
+	require.True(t, isHealthy(w), "Watcher starts healthy")
 	require.False(t, w.IsInitialized())
 
 	time.Sleep(2 * time.Second)
 	require.False(t, w.IsInitialized())
 	require.False(t, isHealthy(w), "Watcher should not be hot since primary is failing")
 
+	fallback.On("GetKubernetesServers", mock.Anything).
+		Return([]types.KubeServer{newTestKubeServer(t, "foo", "bar")}, nil)
 	srvs, err := w.CurrentResourcesWithFilter(ctx, noopFilter)
 	require.NoError(t, err)
 	require.Len(t, srvs, 1)
@@ -196,6 +195,13 @@ func testProxyKubeServerWatcherStartsWithFaultyPrimarySynctest(t *testing.T) {
 	time.Sleep(cfg.FallbackInterval + time.Second)
 
 	var wg sync.WaitGroup
+
+	// Simulate long fetch to ensure only one is called
+	fallbackFetcher := make(chan struct{})
+	fallback.On("GetKubernetesServers", mock.Anything).
+		Run(func(args mock.Arguments) {
+			<-fallbackFetcher
+		})
 
 	type result struct {
 		srvs []types.KubeServer
@@ -210,6 +216,8 @@ func testProxyKubeServerWatcherStartsWithFaultyPrimarySynctest(t *testing.T) {
 			results <- result{srvs: srvs, err: err}
 		})
 	}
+
+	close(fallbackFetcher)
 
 	wg.Wait()
 	close(results)
@@ -706,15 +714,14 @@ func TestProxyKubeServerWatcher_MaybeFetchFromUpstreamDoesNotOverwriteHotCache(t
 	<-fetchStarted
 
 	markHealthy(w)
-
 	close(continueFetch)
-
 	require.NoError(t, <-done)
 
 	w.rw.RLock()
-	defer w.rw.RUnlock()
 	require.Len(t, w.current, 1)
 	srv, ok := w.current[kubeServerKey(primaryServer)]
+	w.rw.RUnlock()
+
 	require.True(t, ok)
 	require.Equal(t, primaryServer.GetName(), srv.GetName())
 
