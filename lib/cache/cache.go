@@ -540,7 +540,7 @@ type Cache struct {
 	// when checking the `ok` or `confirmedKinds` fields. Since the write
 	// lock must be held in order to modify the `ok` field, this serves
 	// to ensure that all in-progress reads complete *before* a reset can begin.
-	rw sync.RWMutex
+	rw rwMutex
 	// ok indicates whether the cache is in a valid state for reads.
 	// If `ok` is `false`, reads are forwarded directly to the backend.
 	ok bool
