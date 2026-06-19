@@ -15,13 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use ironrdp_graphics::pointer::DecodedPointer;
-use std::sync::Arc;
+use std::rc::Rc;
 
 #[derive(Default)]
 pub(crate) enum CursorBitmap {
     #[default]
     Default,
-    Server(Arc<DecodedPointer>),
+    Server(Rc<DecodedPointer>),
 }
 
 impl CursorBitmap {
@@ -56,7 +56,7 @@ pub(crate) struct CursorState {
 }
 
 impl CursorState {
-    pub(crate) fn set_bitmap(&mut self, pointer: Arc<DecodedPointer>) {
+    pub(crate) fn set_bitmap(&mut self, pointer: Rc<DecodedPointer>) {
         if pointer.bitmap_data.is_empty() {
             return;
         }
@@ -175,7 +175,7 @@ mod tests {
 
         assert_is_default(state.bitmap());
 
-        state.set_bitmap(Arc::new(sample_pointer()));
+        state.set_bitmap(Rc::new(sample_pointer()));
 
         let cached = state.bitmap();
         let (width, height) = cached.dimensions();
