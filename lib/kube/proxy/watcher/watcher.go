@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 package watcher
 
 import (
@@ -309,8 +310,7 @@ func (w *ProxyKubeServerWatcher) fetchAndInitializeState(watcher types.Watcher) 
 			eventBuf = append(eventBuf[:0], event)
 			eventBuf = fillEventBuf(w.ctx, eventBuf, watcher, eventBufferSize)
 			// no lock, events applied to local copy of the new state.
-			err := w.applyEventsLocked(w.ctx, newCurrent, eventBuf)
-			if err != nil {
+			if err := applyEvents(w.ctx, w.Logger, newCurrent, eventBuf); err != nil {
 				return trace.Wrap(err, "applying events to new state")
 			}
 			seen += len(eventBuf)
@@ -356,7 +356,7 @@ func (w *ProxyKubeServerWatcher) watch() error {
 			eventBuf = append(eventBuf[:0], event)
 			eventBuf = fillEventBuf(w.ctx, eventBuf, watcher, eventBufferSize)
 			w.rw.Lock()
-			err := w.applyEventsLocked(w.ctx, w.current, eventBuf)
+			err := applyEvents(w.ctx, w.Logger, w.current, eventBuf)
 			w.rw.Unlock()
 			if err != nil {
 				return trace.Wrap(err, "applying events")
@@ -465,11 +465,11 @@ func (w *ProxyKubeServerWatcher) runWatchLoop() {
 	}
 }
 
-// applyEventsLocked takes events from the watcher channel and applies them to the given resources map
-func (w *ProxyKubeServerWatcher) applyEventsLocked(ctx context.Context, resources map[serverKey]types.KubeServer, events []types.Event) error {
+// applyEvents takes events from the watcher channel and applies them to the given resources map
+func applyEvents(ctx context.Context, log *slog.Logger, resources map[serverKey]types.KubeServer, events []types.Event) error {
 	for _, event := range events {
 		if event.Resource == nil || event.Resource.GetKind() != types.KindKubeServer {
-			w.Logger.WarnContext(ctx, "Received unexpected event", "event", logutils.StringerAttr(event))
+			log.WarnContext(ctx, "Received unexpected event", "event", logutils.StringerAttr(event))
 			continue
 		}
 
@@ -479,7 +479,7 @@ func (w *ProxyKubeServerWatcher) applyEventsLocked(ctx context.Context, resource
 		case types.OpPut:
 			srv, err := types.ConvertResource[types.KubeServer](event.Resource)
 			if err != nil {
-				w.Logger.WarnContext(ctx, "Failed to convert event resource",
+				log.WarnContext(ctx, "Failed to convert event resource",
 					"resource", event.Resource.GetKind(),
 					"error", err,
 				)
@@ -488,7 +488,7 @@ func (w *ProxyKubeServerWatcher) applyEventsLocked(ctx context.Context, resource
 
 			resources[kubeServerKey(srv)] = srv
 		default:
-			w.Logger.WarnContext(ctx, "Skipping unsupported event type", "event_type", event.Type)
+			log.WarnContext(ctx, "Skipping unsupported event type", "event_type", event.Type)
 			return trace.BadParameter("unsupported event type: %v", event.Type)
 		}
 	}
