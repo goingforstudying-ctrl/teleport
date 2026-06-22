@@ -4,7 +4,7 @@ agentsPerPod: 15
 minReadySeconds: 30
 
 image:
-  tag: 15.0.0
+  tag: 18
 
 joinParams:
   method: token
