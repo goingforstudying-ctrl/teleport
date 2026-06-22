@@ -199,7 +199,7 @@ func TestCheckSCPAllowed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			scx := newTestServerContext(t, nil, nil, nil)
 			scx.AllowFileCopying = true
-			scx.Identity.AccessPermit = &decisionpb.SSHAccessPermit{SshFileCopy: true}
+			scx.Identity.AccessPermit = decisionpb.SSHAccessPermit_builder{SshFileCopy: true}.Build()
 			ok, err := checkSCPAllowed(scx, tc.command)
 			require.NoError(t, err)
 			tc.assert(t, ok)
