@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gravitational/trace"
 
@@ -111,7 +112,7 @@ func (c *Command) Update(ctx context.Context, client *authclient.Client) error {
 		}
 	} else {
 		// Metadata only update: don't touch members or access roles (preset).
-		updatedAccessList, err = client.AccessListClient().UpsertAccessList(ctx, al)
+		updatedAccessList, err = client.AccessListClient().UpdateAccessList(ctx, al)
 		if err != nil {
 			return trace.Wrap(err)
 		}
@@ -153,6 +154,11 @@ func (c *Command) applySpecFlags(al *accesslist.AccessList) error {
 			return trace.Wrap(err)
 		}
 		al.Spec.Audit.Recurrence.DayOfMonth = day
+	}
+	// Zero out NextAuditDate so the backend can re-compute this field
+	// automatically.
+	if c.auditFrequencySet || c.auditDaySet {
+		al.Spec.Audit.NextAuditDate = time.Time{}
 	}
 
 	// Owner grants and requirements
@@ -455,27 +461,30 @@ func (c *Command) updateAccessListWithPreset(ctx context.Context, client *authcl
 		}
 	} // else, no roles appended means "remove these access roles from al grants"
 
-	grpcClient := accesslistv1.NewAccessListServiceClient(client.GetConnection())
-	resp, err := grpcClient.UpdateAccessListWithPreset(ctx, &accesslistv1.UpdateAccessListWithPresetRequest{
-		AccessList: conv.ToProto(al),
-		Roles:      updatedAccessRoles,
-	})
-	if err != nil {
-		return nil, nil, nil, trace.Wrap(err)
-	}
-	updatedAccessList, err := conv.FromProto(resp.AccessList)
-	if err != nil {
-		return nil, nil, nil, trace.Wrap(err)
-	}
-
-	finalAccessList := updatedAccessList
+	// Upsert members first so the preset role/grant changes below are not
+	// committed if member validation fails.
+	updatedAcl := al
 	if membersChanged {
-		finalAccessList, _, err = client.AccessListClient().UpsertAccessListWithMembers(ctx, updatedAccessList, newMembers)
+		var err error
+		updatedAcl, _, err = client.AccessListClient().UpsertAccessListWithMembers(ctx, al, newMembers)
 		if err != nil {
 			return nil, nil, nil, trace.Wrap(err)
 		}
 	}
-	return finalAccessList, resp.GetRoles(), resp.GetRolesToBeDeleted(), nil
+
+	grpcClient := accesslistv1.NewAccessListServiceClient(client.GetConnection())
+	resp, err := grpcClient.UpdateAccessListWithPreset(ctx, accesslistv1.UpdateAccessListWithPresetRequest_builder{
+		AccessList: conv.ToProto(updatedAcl),
+		Roles:      updatedAccessRoles,
+	}.Build())
+	if err != nil {
+		return nil, nil, nil, trace.Wrap(err)
+	}
+	updatedAcl, err = conv.FromProto(resp.GetAccessList())
+	if err != nil {
+		return nil, nil, nil, trace.Wrap(err)
+	}
+	return updatedAcl, resp.GetRoles(), resp.GetRolesToBeDeleted(), nil
 }
 
 // printUpdateText renders the human-readable summary of an update.

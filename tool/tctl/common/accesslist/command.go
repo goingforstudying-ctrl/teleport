@@ -228,8 +228,8 @@ func (c *Command) Initialize(app *kingpin.Application, _ *tctlcfg.GlobalCLIFlags
 	// Access list metadata:
 	c.update.Flag("title", "New display name for the access list.").IsSetByUser(&c.titleSet).StringVar(&c.title)
 	c.update.Flag("description", "New description.").IsSetByUser(&c.descriptionSet).StringVar(&c.description)
-	c.update.Flag("audit-frequency", "Audit recurrence in months (1, 3, 6, or 12).").PlaceHolder("6").IsSetByUser(&c.auditFrequencySet).IntVar(&c.auditFrequency)
-	c.update.Flag("audit-day", "Day of month for audit (1, 15, or 31).").PlaceHolder("1").IsSetByUser(&c.auditDaySet).IntVar(&c.auditDay)
+	c.update.Flag("audit-frequency", "Audit recurrence in months (1, 3, 6, or 12). Changing this resets the next audit date to now + frequency.").PlaceHolder("6").IsSetByUser(&c.auditFrequencySet).IntVar(&c.auditFrequency)
+	c.update.Flag("audit-day", "Day of month for audit (1, 15, or 31). Changing this resets the next audit date to now + frequency.").PlaceHolder("1").IsSetByUser(&c.auditDaySet).IntVar(&c.auditDay)
 	// Access list owners:
 	c.update.Flag("owners", "Replace the user owners with this list of usernames or emails.").PlaceHolder("user1,user2,...").IsSetByUser(&c.ownersSet).StringVar(&c.owners)
 	c.update.Flag("owner-access-lists", "Replace the access-list owners with this list of access list names.").PlaceHolder("name1,name2,...").IsSetByUser(&c.ownerAccessListsSet).StringVar(&c.ownerAccessLists)
