@@ -33,6 +33,9 @@ page_type: how-to
 - AWS Account with Amazon Keyspaces database and permissions to create and attach IAM policies
 - The `cqlsh` Cassandra client installed and added to your system's `PATH` environment variable.
 - A host, e.g., an Amazon EC2 instance, where you will run the Teleport Database Service.
+- An IAM principal for the Teleport Database Service. We assume that this is
+  either an IAM role called `TeleportDatabaseServiceRole` or an IAM user called
+  `TeleportDatabaseServiceUser`.
 - (!docs/pages/includes/tctl.mdx!)
 
 ## Step 1/5. Set up the Teleport Database Service
@@ -115,21 +118,50 @@ Enter a role name and press "Create role".
 ## Step 4/5. Give Teleport permissions to assume roles
 
 Next, attach the following policy to the IAM role or IAM user the Teleport
-Database Service instance is using, which allows the Database Service to
-assume the IAM roles:
+Database Service instance is using, which allows the Database Service to assume
+the IAM roles. 
 
-```yaml
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": "sts:AssumeRole",
-      "Resource": "*"
-    }
-  ]
-}
-```
+1. Save the following JSON document as `assume-role.json`:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": "sts:AssumeRole",
+         "Resource": "*"
+       }
+     ]
+   }
+   ```
+
+1. Create the policy and attach it to the Teleport Database Service. This
+   depends on whether the Database Service authenticates as an IAM role or IAM
+   user:
+
+   <Tabs>
+   <TabItem label="Role">
+
+   ```code
+   $ aws iam put-role-policy \
+     --role-name TeleportDatabaseServiceRole \
+     --policy-name TeleportAssumeRole \
+     --policy-document file://assume-role.json
+   ```
+
+   </TabItem>
+   <TabItem label="User">
+
+   ```code
+   $ aws iam put-user-policy \
+     --user-name TeleportDatabaseServiceUser \
+     --policy-name TeleportAssumeRole \
+     --policy-document file://assume-role.json
+   ```
+
+   </TabItem>
+   </Tabs>
 
 <Admonition type="tip">
   You can make the policy more strict by providing specific IAM role resource
