@@ -89,12 +89,29 @@ spec:
    ...
 ```
 
-## Step 4/7. Reconnect reverse tunnel agents
+## Step 4/7. Reconnect Teleport Agents
 
-Restart all SSH, Kubernetes, application and database agents that connect to
-the cluster's proxy over reverse tunnels.
+Restart all Teleport Agent services that connect to the cluster's Proxy Service
+over reverse tunnels, such as the SSH Service, Database Service, and Kubernetes
+Service.
 
-This will make them reconnect to the cluster in TLS routing mode.
+For example, if you have deployed a Teleport Agent by installing the
+`teleport-kube-agent` Helm chart, run the following command to restart all
+Teleport Agent instances:
+
+```code
+$ kubectl rollout restart statefulset/teleport-kube-agent -n teleport-agent
+```
+
+If you are running your Teleport Agent instances on Linux servers, reload the
+Teleport configuration on each one:
+
+```code
+$ sudo systemctl reload teleport
+```
+
+This will make Teleport Agent instances reconnect to the cluster in TLS routing
+mode.
 
 ## Step 5/7. Relogin with tsh
 
