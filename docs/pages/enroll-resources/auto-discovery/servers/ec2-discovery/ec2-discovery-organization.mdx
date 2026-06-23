@@ -25,6 +25,8 @@ If you only have a single AWS Account, read [Manual EC2 Auto-Discovery Configura
 - AWS Organization with EC2 instances and permissions to create and attach IAM policies.
 - EC2 instances running Ubuntu/Debian/RHEL/Amazon Linux 2/Amazon Linux 2023 and SSM agent version 3.1 or greater if making use of the
 default Teleport install script. (For other Linux distributions, you can install Teleport manually.)
+- An AWS IAM role for the Teleport Auth Service. In this guide, we'll assume the
+  name of the role is `TeleportAuthServiceRole`.
 - (!docs/pages/includes/tctl.mdx!)
 
 All EC2 instances that are to be added to the Teleport cluster by the Discovery 
@@ -75,33 +77,43 @@ $ tctl create -f token.yaml
 The Auth Service must be able to verify that joining instances belong to the specified AWS Organization, by calling the [`organizations:DescribeAccount`](https://docs.aws.amazon.com/organizations/latest/APIReference/API_DescribeAccount.html) API.
 
 <Admonition type="tip">
-Auth Service must be run in the AWS Organization management account or in a member account that is a delegated administrator.
+The Auth Service must be run in the AWS Organization management account or in a member account that is a delegated administrator.
 
 The required AWS APIs are part of the AWS Organizations service, and can only be called from the management account or a member account that is a delegated administrator.
 </Admonition>
 
-If your Auth Service already has access to an IAM Role, you can attach the following policy to it:
+1. Create a file called `describe-account.json` with the following content:
 
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "organizations:DescribeAccount"
-            ],
-            "Resource": [
-                "*"
-            ]
-        }
-    ]
-}
-```
+   ```json
+   {
+       "Version": "2012-10-17",
+       "Statement": [
+           {
+               "Effect": "Allow",
+               "Action": [
+                   "organizations:DescribeAccount"
+               ],
+               "Resource": [
+                   "*"
+               ]
+           }
+       ]
+   }
+   ```
 
-If your Auth Service does not have access to an IAM Role, create one with the above policy and attach it to the Auth Service's running instance.
+1. Assign the policy to the Auth Service's IAM role:
 
-## Step 3/7. Allow the Discovery Service to list accounts in the organization and assume roles in the target accounts
+  ```code
+  $ aws put-role-policy \
+    --role-name TeleportAuthServiceRole \
+    --policy-name AllowDescribeAccount \
+    --policy-document file://describe-account.json
+    ```
+
+## Step 3/7. Configure IAM for the Discovery Service
+
+Allow the Discovery Service to list accounts in the organization and assume
+roles in the target accounts.
 
 We'll start by creating the required AWS permissions for the Discovery Service.
 
