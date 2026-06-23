@@ -29,13 +29,15 @@ BEGIN
         EXECUTE FORMAT('ALTER USER %I WITH LOGIN', username);
     ELSE
         EXECUTE FORMAT('CREATE USER %I IN ROLE "teleport-auto-user"', username);
+        {{ if .GrantAutoProvisionedUser -}}
         -- Grant the created/activated user to the teleport admin user.
         -- This is is a precondition for the ALTER ... OWNER TO statements
         -- in the reassignment procedure.
-        {{ if ge . 160000 -}}
-            EXECUTE FORMAT('GRANT %I TO %I WITH SET TRUE', username, CURRENT_USER);
+        {{ if ge .PostgresVersion 160000 -}}
+        EXECUTE FORMAT('GRANT %I TO %I WITH SET TRUE', username, CURRENT_USER);
         {{ else -}}
-            EXECUTE FORMAT('GRANT %I TO %I', username, CURRENT_USER);
+        EXECUTE FORMAT('GRANT %I TO %I', username, CURRENT_USER);
+        {{- end }}
         {{- end }}
     END IF;
 
