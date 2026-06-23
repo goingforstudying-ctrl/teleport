@@ -34,9 +34,9 @@ use ironrdp_rdpdr::pdu::{
     esc, RdpdrPdu,
 };
 use log::{debug, trace, warn};
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt::Debug;
-use std::{collections::HashMap};
 
 pub(crate) fn cast_length<T, S: TryInto<T, Error: Debug>>(
     ctx: &str,
@@ -268,8 +268,7 @@ impl FilesystemBackend {
             .for_each(|(completion_id, handler)| {
                 let _ = handler.cancel(self).inspect_err(|e| {
                     warn!(
-                        "Failed to send cancellation response for deviceId {}, completionId {}: {
-            }",
+                        "Failed to send cancellation response for deviceId {}, completionId {}: {}",
                         device_id, completion_id, e
                     )
                 });
@@ -342,15 +341,15 @@ impl FilesystemBackend {
                 self.handle_rdp_query_information_req(req)
             }
             efs::ServerDriveIoRequest::DeviceCloseRequest(req) => {
-                // If tombstoned AND this is request closes that final file in the cache,
-                // then we'll finally send the request to remote the device.
+                // If the device is tombstoned AND this request closes that final file
+                // in the cache, then we'll finally send the request to remove the device.
                 let device_id = req.device_io_request.device_id;
                 let res = self.handle_rdp_device_close_req(req);
                 if device_is_tombstoned {
                     // HACK(rhammonds): We need to remove this device id from the rdpdr ServiceProcessor,
-                    // but do not (and cannot) obtain a reference to it because the 'rdpdr' instance already
-                    // holds a reference to us. We'll synthesize a new directory removal message for the
-                    // for the client to process which will attempt to remove the device/directory again.
+                    // but can't obtain a reference to it because the 'rdpdr' instance already holds
+                    // a reference to us. We'll synthesize a new directory removal message for the for
+                    // the client to process which will attempt to remove the device/directory again.
                     let _ = self
                         .client_handle
                         .handle_tdp_sd_remove(SharedDirectoryRemove {
@@ -612,7 +611,7 @@ impl FilesystemBackend {
             return self.send_rdp_device_close_response(rdp_req, NtStatus::SUCCESS);
         }
 
-        self.send_rdp_device_close_response(rdp_req, NtStatus::NO_SUCH_FILE)
+        self.send_rdp_device_close_response(rdp_req, NtStatus::UNSUCCESSFUL)
     }
 
     /// Handles an RDP [`efs::ServerDriveQueryDirectoryRequest`] received from the RDP server.
@@ -631,7 +630,7 @@ impl FilesystemBackend {
                 warn!("FILE NOT FOUND IN handle_rdp_query_directory_req ");
                 self.send_rdp_drive_query_dir_response(
                     rdp_req.device_io_request,
-                    NtStatus::from(0xC0000120),
+                    NtStatus::UNSUCCESSFUL,
                     None,
                 )
             }
@@ -2177,6 +2176,8 @@ impl Cancel for efs::ServerDriveNotifyChangeDirectoryRequest {
                     device_io_reply: efs::DeviceIoResponse {
                         device_id: self.device_io_request.device_id,
                         completion_id: self.device_io_request.completion_id,
+                        // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/596a1078-e883-4972-9bbc-49e60bebca55
+                        // STATUS_CANCELLED - 0xC0000120
                         io_status: NtStatus::from(0xC0000120),
                     },
                     buffer: None,
