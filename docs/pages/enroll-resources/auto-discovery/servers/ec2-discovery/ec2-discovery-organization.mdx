@@ -22,7 +22,10 @@ If you only have a single AWS Account, read [Manual EC2 Auto-Discovery Configura
 
 (!docs/pages/includes/edition-prereqs-tabs.mdx!)
 
-- AWS Organization with EC2 instances and permissions to create and attach IAM policies.
+- AWS Organization with EC2 instances and permissions to create and attach IAM
+  policies.
+- Credentials and IAM permissions to create roles and policies in each AWS
+  account that has resources you want to enroll with your Teleport cluster.
 - EC2 instances running Ubuntu/Debian/RHEL/Amazon Linux 2/Amazon Linux 2023 and
   SSM agent version 3.1 or greater if making use of the default Teleport install
   script. (For other Linux distributions, you can install Teleport manually.)
@@ -197,39 +200,55 @@ The required AWS APIs are part of the AWS Organizations service, and can only be
 
 Each target AWS account must have an IAM Role which can be assumed by the Discovery Service's IAM role, and which has permissions to discover EC2 instances.
 
-Create an IAM Role named <Var name="DiscoverEC2AssumedRole" /> in each target AWS account, including the one where the Discovery Service is running, with the following permissions:
+Complete the following actions for each target AWS Account, including the one
+where the Discovery Service is running, to create a role called
+`DiscoverEC2AssumedRole` that the Discovery Service can assume:
 
-```json
-{
-    "Effect": "Allow",
-    "Action": [
-        "account:ListRegions",
-        "ec2:DescribeInstances",
-        "ssm:DescribeInstanceInformation",
-        "ssm:GetCommandInvocation",
-        "ssm:ListCommandInvocations",
-        "ssm:SendCommand"
-    ],
-    "Resource": "*"
-}
-```
+1. Create an IAM policy document by adding the following to a file called
+   `discover-ec2-assumed-role.json`:
 
-Add the following trust relationship, which allows the <Var name="Discovery Service role's ARN" /> to assume it:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+           "Effect": "Allow",
+           "Action": [
+               "account:ListRegions",
+               "ec2:DescribeInstances",
+               "ssm:DescribeInstanceInformation",
+               "ssm:GetCommandInvocation",
+               "ssm:ListCommandInvocations",
+               "ssm:SendCommand"
+           ],
+           "Resource": "*"
+       }
+     ]
+   }
+   ```
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "<Var name="Discovery Service role's ARN" />"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-```
+1. Define a trust relationship that allows the Discovery Service to assume the
+   role you just defined. Execute the following command in the shell where you
+   retrieved the Discovery Service role ARN earlier:
+
+   ```code
+   $ jq -n --arg arn "$DISCOVERY_ROLE_ARN" \
+  '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":$arn},"Action":"sts:AssumeRole"}]}' > discover-ec2-trust-policy.json
+  ```
+
+  This writes a trust policy document to `discover-ec2-trust-policy.json`.
+
+1. Create the assumed role and attach the policies you defined:
+
+   ```code
+   $ aws iam create-role \
+     --role-name DiscoverEC2AssumedRole \
+     --assume-role-policy-document file://discover-ec2-trust-policy.json
+   $ aws iam put-role-policy \
+     --role-name DiscoverEC2AssumedRole \
+     --policy-name DiscoverEC2Policy \
+     --policy-document file://discover-ec2-assumed-role.json
+   ```
 
 ## Step 5/7. Install Teleport on the Discovery Node
 <Admonition type="tip">
