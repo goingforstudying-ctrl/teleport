@@ -43,12 +43,10 @@ import (
 func TestProtoStreamPartUploadRetryExhaustion(t *testing.T) {
 	ctx := context.Background()
 
-	uploadPartCalls := 0
 	var abortCalls atomic.Int64
 	uploader := &eventstest.MockUploader{
 		UploadPartError: errors.New("s3 persistent error"),
 		MockUploadPart: func(ctx context.Context, upload events.StreamUpload, partNumber int64, partBody io.ReadSeeker) (*events.StreamPart, error) {
-			uploadPartCalls++
 			return nil, errors.New("s3 persistent error")
 		},
 		MockAbortUpload: func(context.Context, events.StreamUpload) error {
@@ -88,6 +86,44 @@ func TestProtoStreamPartUploadRetryExhaustion(t *testing.T) {
 	err = stream.Complete(ctx)
 	require.Error(t, err)
 	require.True(t, trace.IsLimitExceeded(err), "expected LimitExceeded error indicating retry exhaustion, got: %v", err)
+	require.Equal(t, int64(1), abortCalls.Load())
+}
+
+func TestProtoStreamRetryExhaustionBeforeComplete(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var abortCalls atomic.Int64
+	uploader := &eventstest.MockUploader{
+		MockUploadPart: func(context.Context, events.StreamUpload, int64, io.ReadSeeker) (*events.StreamPart, error) {
+			return nil, errors.New("persistent storage backend error")
+		},
+		MockAbortUpload: func(context.Context, events.StreamUpload) error {
+			abortCalls.Add(1)
+			return nil
+		},
+	}
+	streamer, err := events.NewProtoStreamer(events.ProtoStreamerConfig{
+		Uploader:       uploader,
+		MinUploadBytes: 1,
+		RetryConfig:    &retryutils.LinearConfig{First: 1, Step: 1, Max: 1},
+	})
+	require.NoError(t, err)
+	stream, err := streamer.CreateAuditStream(ctx, session.NewID())
+	require.NoError(t, err)
+	require.NoError(t, stream.RecordEvent(ctx, eventstest.PrepareEvent(&apievents.SessionPrint{
+		Metadata: apievents.Metadata{Type: events.SessionPrintEvent},
+		Data:     []byte("test data"),
+	})))
+
+	// Force the failure through receiveAndUpload while the stream is still open,
+	// rather than racing Complete's request with the failed part notification.
+	select {
+	case <-stream.Done():
+	case <-ctx.Done():
+		t.Fatal("stream did not stop after retry exhaustion")
+	}
+	err = stream.Complete(ctx)
+	require.True(t, trace.IsLimitExceeded(err), "expected retry exhaustion, got %v", err)
 	require.Equal(t, int64(1), abortCalls.Load())
 }
 

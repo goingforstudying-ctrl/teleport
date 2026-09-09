@@ -509,15 +509,16 @@ func (h *Handler) AbortUpload(ctx context.Context, upload events.StreamUpload) e
 		return trace.Wrap(err)
 	}
 
-	parts, err := h.ListParts(ctx, upload)
-	if err != nil {
-		return trace.Wrap(err, "listing upload parts")
-	}
-
 	// Remove the marker first so the periodic completer cannot observe and
-	// finalize the upload while its parts are being deleted.
+	// finalize the upload even if listing or deleting its parts fails.
 	if _, err := cErr(h.uploadMarkerBlob(upload).Delete(ctx, nil)); err != nil && !trace.IsNotFound(err) {
 		return trace.Wrap(err, "deleting upload marker")
+	}
+
+	// Cleanup must remain retryable after the marker has been removed.
+	parts, err := h.listParts(ctx, upload)
+	if err != nil {
+		return trace.Wrap(err, "listing upload parts")
 	}
 
 	for _, part := range parts {
@@ -688,7 +689,10 @@ func (h *Handler) ListParts(ctx context.Context, upload events.StreamUpload) ([]
 	if _, err := cErr(h.uploadMarkerBlob(upload).GetProperties(ctx, nil)); err != nil {
 		return nil, trace.Wrap(err, "reading upload marker")
 	}
+	return h.listParts(ctx, upload)
+}
 
+func (h *Handler) listParts(ctx context.Context, upload events.StreamUpload) ([]events.StreamPart, error) {
 	prefix := partPrefix(upload)
 
 	var parts []events.StreamPart
